@@ -1,0 +1,5 @@
+faster-whisper
+fastapi[standard-no-fastapi-cloud-cli]
+piper-tts
+uvicorn 
+python-multipart
