@@ -11,20 +11,22 @@ As well, a lot of comments asked for a tutorial. The more I thought about it, th
 
 - A computer. If you're reading this on a machine you own, you're good
 - A microphone that can plug into the computer. A webcam mic is fine, a built-in laptop mic is fine
+- A text editor. I like SublimeText or VSCode because they make reading code nice, but you can use literally any text editor if you want
 - A terminal. Looks scary in the movies but it's just a chat window that you can use to talk to your computer and tell it to do stuff, instead of clicking around with your mouse!
-- Can open terminal like any other application
-- Side note though, if you get excited about this project and start googling stuff, don't just paste random stuff your find into your terminal; do your due diligence
+- If you have a computer, you have a terminal; it's built in. You can open it like any other application.
+    - Side note though, if you get excited about this project and start googling stuff, don't just paste random commands you find into your terminal. Do your due diligence to understand what you're telling the computer to do, or you might tell it to do something insane. This doesn't usually happen unless you're putting in really strange commands, but it's worth mentioning
 - Python. If you have a mac or most linux machines, you will already have python. If you have windows, you'll have to install it from [python.org](python.org)
     - Not sure? Open a terminal and type `python --version`
-    - If the version starts with a 3, you're good. If it starts with a 2 (like 2.7.3 or something), then you'll need to type python3 --version
-    - If that shows a number that starts with 3, then you'll need to run commands with `python3` instead of `python`
-- A lil teeny bit of python knowledge. (I highly recommend just browsing python.org; they have really good stuff for beginners, including installation guides!)
-- A little bit of courage. Working with the terminal can seem really scary at first (thanks, movies!) but it's just a text window where you can talk directly to your computer instead of using the mouse to click around for stuff.
+    - If the version starts with a 3, you're good. If it starts with a 2 (like 2.7.3 or something), then you'll need to type `python3 --version`
+    - If that shows a number that starts with 3, then you'll need to run commands with `python3` instead of `python` and `pip3` instead of `pip`
+- A lil teeny bit of python knowledge, or willingness to learn. (I highly recommend just browsing python.org; they have really good stuff for beginners, including installation guides!)
 
 ### Quickstart
-Clone this project and cd into the project from your terminal
+Clone this project (press the green button that says "code" and pick your method. I recommend learning a bit of git and cloning it, but you can also just download the files as a .zip file and open in your text editor)
 
-Run the following:
+`cd` into your project directory from your terminal (for explanations of this and other commands, check out [w3schools](https://www.w3schools.com/bash/bash_cd.php) reference page. They'll have explanations and examples of common commands)
+
+Run the following in your terminal:
 
 `python -m venv env`
 
