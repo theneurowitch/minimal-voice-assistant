@@ -9,6 +9,12 @@ As well, a lot of comments asked for a tutorial. The more I thought about it, th
 ## What this project is NOT:
 This is not a full Alexa replacement, not by a long shot. It's a minimal scaffolding for people who want to try out the process of building something without needing to know everything, buy new hardware, etc.
 
+## Current Skills:
+This project ships with 2 demo skills. One for setting a timer, and one for checking the time. They are both in the main.py file. The intention is that you add your own skills to learn some basic python, and grow some confidence in building stuff that works really well for you. As you add skills, update this list!
+
+- Timer: Sets a timer for the designated length
+- Time: Reads the current time
+
 ## Prerequisites
 
 - A computer. If you're reading this on a machine you own, you're good
