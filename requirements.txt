@@ -1,5 +1,16 @@
 faster-whisper
-fastapi[standard-no-fastapi-cloud-cli]
-piper-tts
-uvicorn 
-python-multipart
+sounddevice
+numpy
+
+# --- optional: real wakeword detection (see the README section) ---
+# To enable, remove the # from the two lines below and run
+# `pip install -r requirements.txt` again.
+# livekit-wakeword
+# note: newer onnxruntime versions (1.27+) silently break the wakeword
+# models. They load fine but score everything near zero. Keep this pin!
+# onnxruntime>=1.17,<1.23
+
+# --- optional: give it a voice (see the README section) ---
+# To enable, remove the # from the line below and run
+# `pip install -r requirements.txt` again.
+# piper-tts
