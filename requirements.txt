@@ -13,4 +13,4 @@ numpy
 # --- optional: give it a voice (see the README section) ---
 # To enable, remove the # from the line below and run
 # `pip install -r requirements.txt` again.
-# piper-tts
+#piper-tts
