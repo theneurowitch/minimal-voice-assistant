@@ -1,16 +1,22 @@
-faster-whisper
-sounddevice
-numpy
+# These versions are pinned on purpose. They're a combination known to work
+# together. Newer isn't always better here — see the onnxruntime note below for
+# a real example of an "upgrade" that quietly breaks things.
+faster-whisper==1.2.1
+sounddevice==0.5.5
+numpy==2.4.6
 
 # --- optional: real wakeword detection (see the README section) ---
-# To enable, remove the # from the two lines below and run
-# `pip install -r requirements.txt` again.
-# livekit-wakeword
-# note: newer onnxruntime versions (1.27+) silently break the wakeword
-# models. They load fine but score everything near zero. Keep this pin!
+# To enable, remove the # from the TWO lines that look like package names below
+# (livekit-wakeword and onnxruntime) and run `pip install -r requirements.txt`
+# again. Leave the note lines alone — pip can't read English.
+#
+# note: keep the onnxruntime pin! Newer versions silently break the wakeword
+# models. They load fine and then score everything near zero, which looks
+# exactly like the assistant ignoring you.
+# livekit-wakeword==0.2.1
 # onnxruntime>=1.17,<1.23
 
 # --- optional: give it a voice (see the README section) ---
 # To enable, remove the # from the line below and run
 # `pip install -r requirements.txt` again.
-#piper-tts
+# piper-tts==1.4.2

@@ -10,14 +10,18 @@ whole trick:
   5. match that text against a couple of regular expressions to run commands.
 
 Run it:               python main.py
+Test a new skill:     python main.py --text   (type commands instead of speaking)
 Stop it:              ctrl+c
 
 """
 
 import queue
 import re
+import sys
 import threading
+import traceback
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd  # talks to your microphone (and speakers)
@@ -45,12 +49,29 @@ WAIT_FOR_COMMAND_SECONDS = 5  # give up if you wake it but don't say anything
 
 WINDOW_SECONDS = 2  # the wakeword model always scores the last 2s of audio
 
+# Where the optional model files live. We build this from the location of THIS
+# file rather than just writing "models/", so the assistant finds them no matter
+# which folder you happen to be in when you run it.
+MODELS = Path(__file__).parent / "models"
+
 # ---------------------------------------------------------------------------
 # The speech-to-text model. "base.en" is small enough to run on a modest CPU.
 # The first run downloads it (~75MB); after that it loads from disk.
 # ---------------------------------------------------------------------------
 
-whisper = WhisperModel("base.en", compute_type="int8")
+# We load it the first time we actually need it, not when the program starts,
+# so that `--text` mode (which never listens to anything) opens instantly
+# instead of waiting on a 75MB download.
+whisper = None
+
+
+def load_whisper():
+    global whisper
+    if whisper is None:
+        print("Loading the speech recognizer (the first run downloads ~75MB)...")
+        whisper = WhisperModel("base.en", compute_type="int8")
+    return whisper
+
 
 # ---------------------------------------------------------------------------
 # The OPTIONAL wakeword model. If you followed the README's wakeword section
@@ -63,15 +84,27 @@ whisper = WhisperModel("base.en", compute_type="int8")
 #     sound in your room all day (nicer to your battery), and
 #   - it's trained specifically on that one phrase, so it's better at
 #     catching it than a transcribe-then-check approach.
+#
+# Note the two different "except" branches below. They answer two different
+# questions, and telling them apart saves you a lot of guessing:
+#   - ImportError means the library isn't installed (you skipped the setup step)
+#   - anything else means the library IS installed but the model wouldn't load
+#     (usually a missing/misnamed file, or the wrong onnxruntime version)
 # ---------------------------------------------------------------------------
+
+wakeword_problem = None  # what went wrong, so we can tell you at startup
 
 try:
     from livekit.wakeword import WakeWordModel
 
-    wakeword = WakeWordModel(models=["models/hey_livekit.onnx"])
-except Exception:
+    wakeword = WakeWordModel(models=[str(MODELS / "hey_livekit.onnx")])
+except ImportError:
     wakeword = None
-
+    wakeword_problem = "livekit-wakeword isn't installed (see the README's wakeword section)"
+except Exception as error:
+    wakeword = None
+    wakeword_problem = f"the library is installed, but the model wouldn't load: {error}"
+    
 # ---------------------------------------------------------------------------
 # The OPTIONAL voice. Same deal as the wakeword model: if you followed the
 # README's "give it a voice" section, piper is installed and there's a voice
@@ -80,12 +113,18 @@ except Exception:
 # difference.
 # ---------------------------------------------------------------------------
 
+voice_problem = None
+
 try:
     from piper.voice import PiperVoice
 
-    voice = PiperVoice.load("models/en_US-lessac-medium.onnx")
-except Exception:
+    voice = PiperVoice.load(str(MODELS / "en_US-lessac-medium.onnx"))
+except ImportError:
     voice = None
+    voice_problem = "piper-tts isn't installed (see the README's voice section)"
+except Exception as error:
+    voice = None
+    voice_problem = f"the library is installed, but the voice wouldn't load: {error}"
 
 
 def reply(text):
@@ -126,6 +165,17 @@ WAKE_PHRASE = re.compile(r"\b(?:hey|okay)[,.!]?\s+live\s?kit\b[,.!]?", re.IGNORE
 #
 # To add your own command: write a function, add a row here. That's it.
 # Can even copy/paste another one, name it something else, and tweak the regex to match your new phrase.
+#
+# A trigger can be written two ways:
+#
+#   "flip a coin"                     <- plain words. Matches if you said them
+#                                        anywhere in the sentence. Start here!
+#   re.compile(r"...", re.IGNORECASE) <- a regular expression, for when you
+#                                        need to pull a NUMBER or WORD out of
+#                                        the sentence (see set_timer below)
+#
+# Every skill function takes one argument, `match`. It's how the fancy ones get
+# at those captured numbers. Simple skills just ignore it — see say_time.
 # ---------------------------------------------------------------------------
 
 
@@ -155,11 +205,15 @@ def set_timer(match):
     seconds = amount * 60 if unit.startswith("minute") else amount
 
     def ring():
-        # The \a is the terminal "bell" — some terminals ding, some flash.
+        # The \a is the terminal "bell." Some terminals ding, some flash.
         # (The voice just ignores it and reads the words.)
         reply(f"\aDing! Your {amount} {unit} timer is done!")
 
-    threading.Timer(seconds, ring).start()
+    # daemon=True means "don't keep the whole program alive just for this".
+    # Without it, ctrl+c would appear to do nothing until the timer ran out.
+    countdown = threading.Timer(seconds, ring)
+    countdown.daemon = True
+    countdown.start()
     reply(f"Timer set for {amount} {unit}{'s' if amount != 1 else ''}")
 
 # ADD NEW COMMANDS HERE! Just add a new row to the INTENTS list below, and write a function for it above.
@@ -169,12 +223,34 @@ INTENTS = [
 ]
 
 
+def as_pattern(trigger):
+    """Let a trigger be either plain words or a regular expression.
+
+    Plain words get turned into a pattern that looks for exactly those words,
+    ignoring capital letters. re.escape() is what makes that safe: it tells
+    Python to treat characters like "?" and "." as literal punctuation rather
+    than as regular-expression instructions."""
+    if isinstance(trigger, str):
+        return re.compile(re.escape(trigger), re.IGNORECASE)
+    return trigger
+
+
 def handle_command(text):
     """Figure out which command the text is asking for, and run it."""
-    for pattern, action in INTENTS:
-        match = pattern.search(text)
+    for trigger, action in INTENTS:
+        match = as_pattern(trigger).search(text)
         if match:
-            action(match)
+            # If your skill has a bug, we'd rather tell you about it than have
+            # the whole assistant fall over — you'd have to start it up again,
+            # and you'd lose whatever it was about to say. So: run the skill,
+            # and if it explodes, print the details and keep listening.
+            try:
+                action(match)
+            except Exception:
+                reply("That skill ran into a problem. Details below:")
+                # The last line says what went wrong; the line above it points
+                # at the exact line of your code that did it.
+                traceback.print_exc(file=sys.stdout)
             return
     reply(f"I heard: {text}, but I don't have a skill for that")
 
@@ -186,7 +262,7 @@ def handle_command(text):
 
 def transcribe(audio):
     """Hand audio to whisper, get text back."""
-    segments, _ = whisper.transcribe(audio, language="en")
+    segments, _ = load_whisper().transcribe(audio, language="en")
     return " ".join(segment.text for segment in segments).strip()
 
 
@@ -194,6 +270,17 @@ def loudness(block):
     """How loud is this block of audio? (Root-mean-square, if you're curious:
     square every sample, average them, square-root it. Bigger = louder.)"""
     return np.sqrt(np.mean(block**2))
+
+
+def drain(audio_queue):
+    """Throw away any audio that piled up while we were busy.
+
+    The microphone never stops recording, so while whisper is thinking (and
+    while the voice is talking) blocks keep stacking up in the queue. If we
+    didn't clear them, the assistant would go right back to processing sound
+    from several seconds ago, including its own reply."""
+    while not audio_queue.empty():
+        audio_queue.get_nowait()
 
 
 def open_microphone(on_audio):
@@ -274,6 +361,7 @@ def listen_with_wakeword_model():
                     print(f"You said: {text}")
                     handle_command(text)
                 command = None
+                drain(audio_queue)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +390,7 @@ def listen_with_transcript_check():
         print("Listening... say 'hey livekit' and a command in one breath (ctrl+c to stop)")
         speech = []  # blocks we've collected since you started talking
         silent_blocks = 0
+        previous = None  # the block just before this one — see "pre-roll" below
 
         while True:
             block = audio_queue.get().flatten()
@@ -311,11 +400,20 @@ def listen_with_transcript_check():
             # sentence that is ready to transcribe. (We wait for the pause instead
             # of using fixed chunks so we never cut a sentence in half.)
             if loudness(block) > SILENCE_THRESHOLD:
+                # "Pre-roll": when speech starts, also keep the block right
+                # before it. A block is a whole quarter second, so you're
+                # already part-way through saying "hey" by the time it gets
+                # loud enough to notice — without this, whisper hears "ey
+                # livekit" and the wakeword never matches.
+                if not speech and previous is not None:
+                    speech.append(previous)
                 speech.append(block)
                 silent_blocks = 0
             elif speech:
                 speech.append(block)
                 silent_blocks += 1
+
+            previous = block
 
             if speech and (silent_blocks >= SILENCE_BLOCKS or len(speech) >= max_blocks):
                 text = transcribe(np.concatenate(speech))
@@ -323,27 +421,55 @@ def listen_with_transcript_check():
                 silent_blocks = 0
 
                 match = WAKE_PHRASE.search(text)
-                if not match:
-                    continue  # not talking to us, so ignore
-                command = text[match.end():].strip()
-                print(f"You said: {command}")
-                handle_command(command)
+                if match:
+                    command = text[match.end():].strip()
+                    print(f"You said: {command}")
+                    handle_command(command)
+                # Either way, throw away whatever piled up while we were busy.
+                drain(audio_queue)
+                previous = None
 
 # ---------------------------------------------------------------------------
 # Below this is the actual program entry point. Don't change anything here unless you know what you're doing!
 # Or for learning purposes. Highly recommend messing around with every part of this file to see what happens
 # ---------------------------------------------------------------------------
 
+def type_commands():
+    """Skill-testing mode: type a command instead of saying it.
+
+    No microphone, no whisper, no wakeword — just your text going straight to
+    handle_command(). This is the fastest way to work on a new skill, because
+    when something doesn't work you know it's your code and not your mic."""
+    print("Text mode — type a command and press enter (ctrl+c to stop)")
+    while True:
+        text = input("> ").strip()
+        if text:
+            handle_command(text)
+
+
 if __name__ == "__main__":
+    if "--text" in sys.argv:
+        try:
+            type_commands()
+        except (KeyboardInterrupt, EOFError):
+            print("\nBye")
+        sys.exit()
+
     if wakeword is not None:
         print("Wakeword model loaded (models/hey_livekit.onnx)")
     else:
-        print("No wakeword model — using the transcribe-and-check fallback (see README to upgrade)")
+        print(f"No wakeword model: {wakeword_problem}")
+        print("  ...falling back to transcribe-and-check. It still works! See the README to upgrade.")
 
     if voice is not None:
         print("Voice loaded (models/en_US-lessac-medium.onnx) — replies will be spoken")
     else:
-        print("No voice model — replies will be text only (see README to give it a voice)")
+        print(f"No voice model: {voice_problem}")
+        print("  ...replies will be text only.")
+
+    # Get the download/loading out of the way now, so it happens before the
+    # "Listening" line rather than in the middle of your first command.
+    load_whisper()
 
     try:
         if wakeword is not None:
